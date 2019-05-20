@@ -14,7 +14,7 @@ def play(players):
     # Set up a new Chexers game and initialise a Red, Green and Blue player
     # (constructing three Player classes including running their .__init__() 
     # methods).
-    game = Chexers(debugboard=False)
+    game = Chexers(debugboard=True)
 
     # Repeat the following until the game ends
     # (starting with Red as the current player, then alternating):
@@ -45,12 +45,12 @@ with open("counter" +  ".json", 'w') as f:
 result = {'r': 0,
           'b': 0,
           'g': 0}
-while i < 100:
+while i < 10:
     #print(i)
     i += 1
     n += 1
     #if n < 100:
-    players = (QLearningPlayer("red", eGreedy=0.2), GreedyPlayer('green'), ImprovedHPlayer('blue'))
+    players = (QLearningPlayer("red", eGreedy=eGreedy), GreedyPlayer('green'), ImprovedHPlayer('blue'))
 
     # if n<200 and n>=100:
     #     players = (QLearningPlayer("red", learningRate, rewardDecay, eGreedy), QLearningPlayer("green", learningRate, rewardDecay, eGreedy), QLearningPlayer("blue", learningRate, rewardDecay, eGreedy))
@@ -76,11 +76,11 @@ while i < 100:
     elif _result['g'] >= 4:
         result['g'] += 1
 
-    eGreedy = 0.01 + (1-0.01)*np.exp(-0.001*i)
+    eGreedy = 0.01 + (1-0.01)*np.exp(-0.00005*i)
     # else:
     #     players = (QLearningPlayer("red", learningRate, rewardDecay, eGreedy), GreedyPlayer('green'), RandomPlayer("blue"))
     #     play(players)
-    #     eGreedy = 0.01 + (1-0.01)*np.exp(-0.001*i)
+    #     eGreedy = 0.01 + (1-0.01)*np.exp(-0.00005*i)
     
     # n += 1
-print(result)
+print(i + ": " + result)

@@ -38,9 +38,10 @@ _REWARDS = {"_WIN": 10,
 _DEFAULT_WEIGHTS = {"_EAT": 2,
             "_WILL_EATEN": 2,
             "_EATEN": 5,
+            "_EAT_BACK": 10,
             "_>HEXES": 5,
             "_<HEXES": 5,
-            "_CLOSE_HEXES": 1,
+            "_CLOSE_HEXES": 2,
             "_CLOSE_END": 2,
             "_EXIT": 4,
             "_NUM_ACTION": 0.5
@@ -227,16 +228,14 @@ class GreedyPlayer(AbstractPlayer):
         return player_cp
 
 class MaxNPlayer(AbstractPlayer):
-    def __init__(self, colour, eGreedy=0.9, depth=3):
+    def __init__(self, colour, depth=3):
         super().__init__(colour)
         self.opponents = {}
-        self.eGreedy = eGreedy
-        # for col in _COLOUR:
-        #     if col != self.colour and depth != 1:
-        #         self.opponents[col] = MaxNPlayer(col, eGreedy, depth-1)
+        self.depth = depth
+        for col in _COLOUR:
+            if col != self.colour and depth != 1:
+                self.opponents[col] = MaxNPlayer(col, depth=depth-1)
         
-
-
     def action(self):
         """
         this method will choose an action based on maxn strategy
@@ -244,57 +243,11 @@ class MaxNPlayer(AbstractPlayer):
         super().action()
         return self.maxn_search(5)[0]
 
-    def update(self, colour, action, keep=True, update=True):
-        global _WEIGHTS
-        last_value = self.state_eval()
+    def update(self, colour, action, update=True):
         super().update(colour, action)
-        # for opponent, model in self.opponents.items():
-        #     if keep:
-        #         model.update(colour, action, keep=False, update=False)
-        new_value = self.state_eval()
-        state = self._snap()
-        self.nturns += 1
-        self.history[state] += 1
-        # with open("counter" +  ".json", 'r') as f:
-        #     counter = json.load(f)
-
-        # if new_value - last_value < 0 and update:
-        #     for name, value in _WEIGHTS.items():
-        #         if random.random() > self.eGreedy:
-        #             _WEIGHTS[name] = random.random() * 7
-        # if reward != 0 and self.last_action[0] != "PASS":
-        #     self.QL.learn(self.last_state, self.last_action, state, reward, True)
-        #     self.QL.saveTable(colour)
-        # if update:
-        #     if max(self.scores.values()) >=4:
-        #         for player, score in self.scores.items():
-        #             if score >= 4:
-        #                 if player != self.colour:
-        #                     for name, value in _WEIGHTS.items():
-        #                         if random.random() > self.eGreedy:
-        #                             _WEIGHTS[name] = random.random() * 7
-        #                     with open('weights.json', 'w') as f:
-        #                         json.dump(_WEIGHTS, f)
-        #                     if "_WIN" not in counter:
-        #                             counter["_WIN"] = {}
-        #                     if player not in counter["_WIN"]:
-        #                         counter["_WIN"][player] = 0
-        #                     counter["_WIN"][player] += 1
-        #                     with open("counter" +  ".json", 'w') as f:
-        #                         json.dump(counter, f)
-
-        #     if self.history[state] >= 4 or self.nturns >= _MAX_TURNS * 3:
-        #         for name, value in _WEIGHTS.items():
-        #             if random.random() > self.eGreedy:
-        #                 _WEIGHTS[name] = random.random() * 7
-        #         with open('weights.json', 'w') as f:
-        #             json.dump(_WEIGHTS, f)
-        #         if "_DRAW" not in counter:
-        #             counter["_DRAW"] = 0
-        #         counter["_DRAW"] += 1
-        #         with open("counter" +  ".json", 'w') as f:
-        #             json.dump(counter, f)
-
+        for opponent, model in self.opponents.items():
+            if update:
+                model.update(colour, action, not update)
 
     def state_eval(self):
         """
@@ -311,7 +264,8 @@ class MaxNPlayer(AbstractPlayer):
         features                              | weights   
         ---------------------------------------------------
         relatively close to each other        | 1         
-        (only 4 closest hexes counts)                     
+        (only 4 closest hexes counts)       
+        this is the same saying how many are in danger                
         ---------------------------------------------------
         relatively close to end               | 1         
         (only 4 closest hexes counts)                     
@@ -330,23 +284,38 @@ class MaxNPlayer(AbstractPlayer):
         how many avaliable actions            | 1
         ---------------------------------------------------
         """
+
         pieces = self._get_hexes()
         num_pieces = len(pieces)
         value = 0
 
         # if no piece left, lose
-        if num_pieces == 0 and self.scores[self.colour] < 4:
-            return _REWARDS["_LOSE"]
+        if num_pieces == 0:
+            if self.scores[self.colour] < 4:
+                return _REWARDS["_LOSE"]
+            else:
+                return _REWARDS["_WIN"]
 
         # else
         # find top 4 pieces
         sorted_pieces = sorted([(qr, self._exit_dist(qr)) for qr in pieces], key=lambda x: x[1])[:5]
 
         # relatively close to each other
-        if (num_pieces > 0):
-            for piece in sorted_pieces:
-                value += sum(math.sqrt(math.pow(piece[0][0] - qr[0][0], 2) + math.pow(piece[0][1] - qr[0][1], 2)) for qr in sorted_pieces) * _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
-            value /= len(sorted_pieces)
+        # how many are in danger
+        for qr, dist in sorted_pieces:
+            danger = True
+            for step_q, step_r in _HEX_STEPS:
+                next_qr = qr[0] + step_q, qr[1] + step_r
+                if next_qr in pieces:
+                    danger = False
+                    break
+            if danger:
+                value -= _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
+
+        # if (num_pieces > 0):
+        #     for piece in sorted_pieces:
+        #         value += sum(math.sqrt(math.pow(piece[0][0] - qr[0][0], 2) + math.pow(piece[0][1] - qr[0][1], 2)) for qr in sorted_pieces) * _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
+        #     value /= len(sorted_pieces)
 
             # do we need to use the difference between this state and last state as value?
             # _dist = 0
@@ -390,6 +359,12 @@ class MaxNPlayer(AbstractPlayer):
 
         value -= (6 * num_pieces - len(self._available_actions())) * _DEFAULT_WEIGHTS["_NUM_ACTION"]
 
+        return sigmoid(value)*10
+
+    def utility_score(self):
+        value = 0
+        for opponent, model in self.opponents.items():
+            value += self.state_eval() - model.state_eval()
         return value
 
     def choose_action(self):
@@ -412,7 +387,7 @@ class MaxNPlayer(AbstractPlayer):
             if col != self_colour:
                 temp_player = self.copy()
                 temp_player.colour = col
-                value[col] = temp_player.state_eval()
+                value[col] = temp_player.utility_score()
         value[self_colour] = self.state_eval()
 
         if depth == 1:
@@ -426,6 +401,11 @@ class MaxNPlayer(AbstractPlayer):
 
             player_cp = self.copy()
             player_cp.update(self_colour, (atype, ahexes))
+            
+            #immediate pruning
+            if player_cp.utility_score() == _REWARDS["_WIN"]:
+                return (atype, ahexes)
+            
 
             # if atype == 'EXIT':
             #     value[player_colour] = h_state(player_cp.state)
@@ -444,7 +424,7 @@ class MaxNPlayer(AbstractPlayer):
         return move, value
 
     def copy(self):
-        player_cp = MaxNPlayer(self.colour, self.eGreedy)
+        player_cp = MaxNPlayer(self.colour, depth=1)
         player_cp.hexes = self.hexes.copy()
         player_cp.board = self.board.copy()
         player_cp.scores = self.scores.copy()
@@ -452,113 +432,104 @@ class MaxNPlayer(AbstractPlayer):
         return player_cp
 
 class QLearningPlayer(AbstractPlayer):
-    def __init__(self, colour, eGreedy=0.4):
+    def __init__(self, colour, depth=3, eGreedy=0.4):
         super().__init__(colour)
-        self.QL = QLearningTable(colour, eGreedy=eGreedy)
-        self.last_action = []
-        self.last_state = None
-        self.last_state_val = 0
+        self.opponents = {}
         self.eGreedy = eGreedy
-        self.state_action_history = []
-
+        for col in _COLOUR:
+            if col != self.colour and depth != 1:
+                self.opponents[col] = MaxNPlayer(col, depth-1)
+                
+        self.eGreedy = eGreedy
+        self.keep_learning = True
+        self.last_state = self._snap()[0]
+        self.last_action = None
+        self.QL = QLearningTable(colour, eGreedy=eGreedy)   
+        
     def action(self):
         if len(self._get_hexes()) == 0:
             return ("PASS", None)
 
-        reward = 0
-        state = self._snap()
-        self.QL.checkState(state, self._available_actions())
-        # if self.nturns >= 3 and self.last_action[0] != "PASS":
-        #     reward = sigmoid(self.state_eval() - self.last_state_val)
-        #     self.QL.learn(self.last_state, self.last_action, state, reward)
+        self.QL.checkState(self.copy())
+        print(self.QL.qTable)
+        return self.QL.chooseAction(str(self._snap()[0]), self.choose_action(), self._available_actions())
 
-        # create a greedy move
-        greedy_player = GreedyPlayer(self.colour)
-        greedy_player.board = self.board.copy()
-        greedy_player.hexes = self.hexes.copy()
-        greedy_player.scores = self.scores.copy()
-        self.last_action = self.QL.chooseAction(state, greedy_player.action(), self._available_actions())
-        self.last_state = state
-        self.last_state_val = self.state_eval()
+    def update(self, colour, action, update=True):
+        if not update:
+            return 
 
-        return self.last_action
-    
-    def update(self, colour, action):
-        if len(self._get_hexes()) == 0 and self.scores[self.colour] < 4:
-            return ("PASS", None)
-            
-        super().update(colour, action)
-
-        if colour == self.colour and self.state_action_history and self.state_action_history[-1][1][0] != "PASS":
-            self.state_action_history.append((self._snap(), action))
-
-        state = self._snap()
-        self.nturns += 1
-        self.history[state] += 1
-        reward = 0
-        with open("counter" +  ".json", 'r') as f:
-            counter = json.load(f)
+        if colour == self.colour:
+            self.last_state = self._snap()[0]
+            self.last_action = action
         
-        # game not end but lost already
-        if len(self._get_hexes()) == 0 and self.scores[self.colour] < 4:
-            reward = _REWARDS["_LOSE"]
-            
-            # self.QL.learn(self.last_state, self.last_action, state, reward, True)
-            for i in range(len(self.state_action_history), 0, -1):
-                state, action = self.state_action_history[i]
-                last_state, last_action = self.state_action_history[i-1]
-                self.QL.learn(last_state, last_action, state, reward, True)
-            self.QL.saveTable(colour) 
+        super().update(colour, action)
+        for opponent, model in self.opponents.items():
+            model.update(colour, action, not update)
 
-            if max(self.scores.values()) >=4:
-                for player, score in self.scores.items():
-                    if score >= 4:
-                        if "_WIN" not in counter:
-                            counter["_WIN"] = {}
-                        if player not in counter["_WIN"]:
-                            counter["_WIN"][player] = 0
-                        counter["_WIN"][player] += 1
-                        with open("counter" +  ".json", 'w') as f:
-                            json.dump(counter, f)
-        # game end
-        elif max(self.scores.values()) >=4:
-            for player, score in self.scores.items():
-                if score >= 4:
-                    if player != self.colour:
-                        reward = _REWARDS["_LOSE"]
-                    else:
-                        reward = _REWARDS["_WIN"]
-                    # self.QL.learn(self.last_state, self.last_action, state, reward, True)
-                    for i in range(len(self.state_action_history), 0, -1):
-                        state, action = self.state_action_history[i]
-                        last_state, last_action = self.state_action_history[i-1]
-                        self.QL.learn(last_state, last_action, state, reward, True)
-                    self.QL.saveTable(colour) 
-                    if "_WIN" not in counter:
-                        counter["_WIN"] = {}
-                    if player not in counter["_WIN"]:
-                        counter["_WIN"][player] = 0
-                    counter["_WIN"][player] += 1
-                    with open("counter" +  ".json", 'w') as f:
-                        json.dump(counter, f)
-        # draw
-        elif self.history[state] >= 4 or self.nturns >= _MAX_TURNS * 3:
-            reward = _REWARDS["_DRAW"]
-            # self.QL.learn(self.last_state, self.last_action, state, reward, True)
-            for i in range(len(self.state_action_history), 0, -1):
-                state, action = self.state_action_history[i]
-                last_state, last_action = self.state_action_history[i-1]
-                self.QL.learn(last_state, last_action, state, reward, True)
-            self.QL.saveTable(colour) 
-            # if self.last_action != None:
-            #     if "_DRAW" not in counter:
-            #         counter["_DRAW"] = 0
-            #     counter["_DRAW"] += 1
-            #     with open("counter" +  ".json", 'w') as f:
-            #         json.dump(counter, f)
-            
-        #if reward != 0 and self.last_action[0] != "PASS":
- 
+        curr_state = self._snap()[0]
+        self.nturns += 1
+        self.history[curr_state] += 1
+
+        if self.nturns % 3 == 0:
+            reward = self.utility_score()
+            self.QL.learn(str(self.last_state), str(self.last_action), str(curr_state), reward)
+
+        # reward = 0
+        # with open("counter" +  ".json", 'r') as f:
+        #     counter = json.load(f)
+        
+        # # game not end but lost already
+        # if self.keep_learning:
+        #     if len(self._get_hexes()) == 0 and self.scores[self.colour] < 4:
+        #         reward = _REWARDS["_LOSE"]
+                
+        #         self.QL.learn(self.last_state, self.last_action, state, reward, True)
+        #         self.QL.saveTable(colour) 
+        #         self.keep_learning = False
+
+        #         if max(self.scores.values()) >=4:
+        #             for player, score in self.scores.items():
+        #                 if score >= 4:
+        #                     if "_WIN" not in counter:
+        #                         counter["_WIN"] = {}
+        #                     if player not in counter["_WIN"]:
+        #                         counter["_WIN"][player] = 0
+        #                     counter["_WIN"][player] += 1
+        #                     with open("counter" +  ".json", 'w') as f:
+        #                         json.dump(counter, f)
+        #     # game end
+        #     elif max(self.scores.values()) >=4:
+        #         for player, score in self.scores.items():
+        #             if score >= 4:
+        #                 if player != self.colour:
+        #                     reward = _REWARDS["_LOSE"]
+        #                 else:
+        #                     reward = _REWARDS["_WIN"]
+        #                 self.QL.learn(self.last_state, self.last_action, state, reward, True)
+        #                 self.QL.saveTable(colour) 
+        #                 self.keep_learning = False
+        #                 if "_WIN" not in counter:
+        #                     counter["_WIN"] = {}
+        #                 if player not in counter["_WIN"]:
+        #                     counter["_WIN"][player] = 0
+        #                 counter["_WIN"][player] += 1
+        #                 with open("counter" +  ".json", 'w') as f:
+        #                     json.dump(counter, f)
+        #     # draw
+        #     elif self.history[state] >= 4 or self.nturns >= _MAX_TURNS * 3:
+        #         reward = _REWARDS["_DRAW"]
+        #         self.QL.learn(self.last_state, self.last_action, state, reward, True)
+        #         self.QL.saveTable(colour) 
+        #         self.keep_learning = False
+        #         # if self.last_action != None:
+        #         #     if "_DRAW" not in counter:
+        #         #         counter["_DRAW"] = 0
+        #         #     counter["_DRAW"] += 1
+        #         #     with open("counter" +  ".json", 'w') as f:
+        #         #         json.dump(counter, f)
+                
+        #     #if reward != 0 and self.last_action[0] != "PASS":
+
     def state_eval(self):
         """
         a state is good => higher chance of winning
@@ -574,7 +545,8 @@ class QLearningPlayer(AbstractPlayer):
         features                              | weights   
         ---------------------------------------------------
         relatively close to each other        | 1         
-        (only 4 closest hexes counts)                     
+        (only 4 closest hexes counts)       
+        this is the same saying how many are in danger                
         ---------------------------------------------------
         relatively close to end               | 1         
         (only 4 closest hexes counts)                     
@@ -588,24 +560,43 @@ class QLearningPlayer(AbstractPlayer):
         ---------------------------------------------------
         have less than 4 pieces               | 1
         ---------------------------------------------------
+        how many have exited                  | 1
+        ---------------------------------------------------
+        how many avaliable actions            | 1
+        ---------------------------------------------------
         """
+
         pieces = self._get_hexes()
         num_pieces = len(pieces)
         value = 0
 
         # if no piece left, lose
-        if num_pieces == 0 and self.scores[self.colour] < 4:
-            return _REWARDS["_LOSE"]
+        if num_pieces == 0:
+            if self.scores[self.colour] < 4:
+                return _REWARDS["_LOSE"]
+            else:
+                return _REWARDS["_WIN"]
 
         # else
         # find top 4 pieces
         sorted_pieces = sorted([(qr, self._exit_dist(qr)) for qr in pieces], key=lambda x: x[1])[:5]
 
         # relatively close to each other
-        if (num_pieces > 0):
-            for piece in sorted_pieces:
-                value += sum(math.sqrt(math.pow(piece[0][0] - qr[0][0], 2) + math.pow(piece[0][1] - qr[0][1], 2)) for qr in sorted_pieces) * _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
-            value /= len(sorted_pieces)
+        # how many are in danger
+        for qr, dist in sorted_pieces:
+            danger = True
+            for step_q, step_r in _HEX_STEPS:
+                next_qr = qr[0] + step_q, qr[1] + step_r
+                if next_qr in pieces:
+                    danger = False
+                    break
+            if danger:
+                value -= _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
+
+        # if (num_pieces > 0):
+        #     for piece in sorted_pieces:
+        #         value += sum(math.sqrt(math.pow(piece[0][0] - qr[0][0], 2) + math.pow(piece[0][1] - qr[0][1], 2)) for qr in sorted_pieces) * _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
+        #     value /= len(sorted_pieces)
 
             # do we need to use the difference between this state and last state as value?
             # _dist = 0
@@ -648,8 +639,231 @@ class QLearningPlayer(AbstractPlayer):
         value += self.scores[self.colour] * _DEFAULT_WEIGHTS["_EXIT"]
 
         value -= (6 * num_pieces - len(self._available_actions())) * _DEFAULT_WEIGHTS["_NUM_ACTION"]
+
+        return sigmoid(value)*10
+
+    def utility_score(self):
+        value = 0
+        for opponent, model in self.opponents.items():
+            value += self.state_eval() - model.state_eval()
         return value
 
+    def choose_action(self):
+        """
+        this method will choose an action only based on current state(greedy approach)
+        """
+        # create a greedy move
+        greedy_player = GreedyPlayer(self.colour)
+        greedy_player.board = self.board.copy()
+        greedy_player.hexes = self.hexes.copy()
+        greedy_player.scores = self.scores.copy()
+        return greedy_player.action()
+
+    def copy(self):
+        player_cp = QLearningPlayer(self.colour, depth=1, eGreedy=self.eGreedy)
+        player_cp.hexes = self.hexes.copy()
+        player_cp.board = self.board.copy()
+        player_cp.scores = self.scores.copy()
+        player_cp.opponents = self.opponents.copy()
+        player_cp.last_state = self.last_state
+        player_cp.last_action = self.last_action
+        
+        return player_cp
+
+# class QLearningPlayer(AbstractPlayer):
+#     def __init__(self, colour, eGreedy=0.4):
+#         super().__init__(colour)
+#         self.QL = QLearningTable(colour, eGreedy=eGreedy)
+#         self.last_action = []
+#         self.last_state = None
+#         self.last_state_val = 0
+#         self.eGreedy = eGreedy
+#         self.keep_learning = True
+
+#     def action(self):
+#         if len(self._get_hexes()) == 0:
+#             return ("PASS", None)
+
+#         state = self._snap()
+#         self.QL.checkState(state, self._available_actions())
+#         if self.nturns >= 3 and self.last_action[0] != "PASS":
+#             reward = sigmoid(self.state_eval() - self.last_state_val)*10
+#             self.QL.learn(self.last_state, self.last_action, state, reward)
+
+#         # create a greedy move
+#         greedy_player = GreedyPlayer(self.colour)
+#         greedy_player.board = self.board.copy()
+#         greedy_player.hexes = self.hexes.copy()
+#         greedy_player.scores = self.scores.copy()
+#         self.last_action = self.QL.chooseAction(state, greedy_player.action(), self._available_actions())
+#         self.last_state = state
+#         self.last_state_val = self.state_eval()
+
+#         return self.last_action
+    
+#     def update(self, colour, action):
+#         super().update(colour, action)
+
+#         state = self._snap()
+#         self.nturns += 1
+#         self.history[state] += 1
+#         reward = 0
+#         with open("counter" +  ".json", 'r') as f:
+#             counter = json.load(f)
+        
+#         # game not end but lost already
+#         if self.keep_learning:
+#             if len(self._get_hexes()) == 0 and self.scores[self.colour] < 4:
+#                 reward = _REWARDS["_LOSE"]
+                
+#                 self.QL.learn(self.last_state, self.last_action, state, reward, True)
+#                 self.QL.saveTable(colour) 
+#                 self.keep_learning = False
+
+#                 if max(self.scores.values()) >=4:
+#                     for player, score in self.scores.items():
+#                         if score >= 4:
+#                             if "_WIN" not in counter:
+#                                 counter["_WIN"] = {}
+#                             if player not in counter["_WIN"]:
+#                                 counter["_WIN"][player] = 0
+#                             counter["_WIN"][player] += 1
+#                             with open("counter" +  ".json", 'w') as f:
+#                                 json.dump(counter, f)
+#             # game end
+#             elif max(self.scores.values()) >=4:
+#                 for player, score in self.scores.items():
+#                     if score >= 4:
+#                         if player != self.colour:
+#                             reward = _REWARDS["_LOSE"]
+#                         else:
+#                             reward = _REWARDS["_WIN"]
+#                         self.QL.learn(self.last_state, self.last_action, state, reward, True)
+#                         self.QL.saveTable(colour) 
+#                         self.keep_learning = False
+#                         if "_WIN" not in counter:
+#                             counter["_WIN"] = {}
+#                         if player not in counter["_WIN"]:
+#                             counter["_WIN"][player] = 0
+#                         counter["_WIN"][player] += 1
+#                         with open("counter" +  ".json", 'w') as f:
+#                             json.dump(counter, f)
+#             # draw
+#             elif self.history[state] >= 4 or self.nturns >= _MAX_TURNS * 3:
+#                 reward = _REWARDS["_DRAW"]
+#                 self.QL.learn(self.last_state, self.last_action, state, reward, True)
+#                 self.QL.saveTable(colour) 
+#                 self.keep_learning = False
+#                 # if self.last_action != None:
+#                 #     if "_DRAW" not in counter:
+#                 #         counter["_DRAW"] = 0
+#                 #     counter["_DRAW"] += 1
+#                 #     with open("counter" +  ".json", 'w') as f:
+#                 #         json.dump(counter, f)
+                
+#             #if reward != 0 and self.last_action[0] != "PASS":
+ 
+#     def state_eval(self):
+#         """
+#         a state is good => higher chance of winning
+#         a state is good != a perfect state(i.e, no enemies around or have eaten a lot of opponents)
+#         if 'win' is the causes, what are some results? i.e, given win, what results are produced?
+#         if 'win' is the result, what are some causes? i.e, given win, how likely it is caused by something?
+#         But a probability network is hard to model since we don't have a huge valid date set
+#         Instead, we will try to give some features and some weights to give a final state value
+#         most of features can be treated as independent features, e.g. close to each other is independent of will be eaten
+#         So P(win|S) = P(win|f1)*P(win|f2)*...
+#         But some of them are dependent. e.g. If I have < 4 pieces, then the weight of 'eat' should be significant large
+
+#         features                              | weights   
+#         ---------------------------------------------------
+#         relatively close to each other        | 1         
+#         (only 4 closest hexes counts) 
+#         this is the same saying how many are in danger                    
+#         ---------------------------------------------------
+#         relatively close to end               | 1         
+#         (only 4 closest hexes counts)                     
+#         ---------------------------------------------------
+#         how likely opponents will win         | 1
+#         (this does not matter for calculating probality of winning give a state, more detail in report)
+#         ---------------------------------------------------
+#         how likely will be eaten with depth=2 | 1
+#         ---------------------------------------------------
+#         how likely will eat with depth=2      | 1 
+#         ---------------------------------------------------
+#         have less than 4 pieces               | 1
+#         ---------------------------------------------------
+#         """
+#         pieces = self._get_hexes()
+#         num_pieces = len(pieces)
+#         value = 0
+
+#         # if no piece left, lose
+#         if num_pieces == 0 and self.scores[self.colour] < 4:
+#             return _REWARDS["_LOSE"]
+
+#         # else
+#         # find top 4 pieces
+#         sorted_pieces = sorted([(qr, self._exit_dist(qr)) for qr in pieces], key=lambda x: x[1])[:5]
+
+#         # relatively close to each other
+#         # how many are in danger
+#         for qr, dist in sorted_pieces:
+#             danger = True
+#             for step_q, step_r in _HEX_STEPS:
+#                 next_qr = qr[0] + step_q, qr[1] + step_r
+#                 if next_qr in pieces:
+#                     danger = False
+#                     break
+#             if danger:
+#                 value -= _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
+#         # if (num_pieces > 0):
+#         #     for piece in sorted_pieces:
+#         #         value += sum(math.sqrt(math.pow(piece[0][0] - qr[0][0], 2) + math.pow(piece[0][1] - qr[0][1], 2)) for qr in sorted_pieces) * _DEFAULT_WEIGHTS["_CLOSE_HEXES"]
+#         #     value /= len(sorted_pieces)
+
+#             # do we need to use the difference between this state and last state as value?
+#             # _dist = 0
+#             # if(_state is not None):
+#             #     _piece = _state.piece_hexes.copy().pop()
+#             #     _dist = sum(math.sqrt(math.pow(_piece[0] - qr[0], 2) + math.pow(_piece[1] - qr[1], 2)) for qr in state.piece_hexes)
+
+#         # relatively close to end
+#         value += (num_pieces * 7 - sum(self._exit_dist(qr) for qr in pieces)) * _DEFAULT_WEIGHTS["_CLOSE_END"]
+
+#         # no emnemy around
+#         punishment  = 0
+#         for q, r in pieces:
+#             for step_q, step_r in _HEX_STEPS:
+#                 for dist in range(1, 2):
+#                     qr_t = q+step_q*dist, r+step_r*dist # qr_t = 'target' hex
+#                     if qr_t in self.hexes and self.board[qr_t] != ' ' and self.board[qr_t] != self.colour:
+#                         # only care if it can actually jump over
+#                         for another_q, another_r in _HEX_STEPS:
+#                             jump_qr = qr_t[0] + another_q, qr_t[1] + another_r
+#                             if jump_qr in self.hexes and self.board[jump_qr] == ' ':
+#                                 # dist = 1, 2, 3...
+#                                 # the furthur away from this hex, the less likely it will be eaten, thus 1/dist
+#                                 punishment += 1/dist
+#         value -= punishment * _DEFAULT_WEIGHTS["_WILL_EATEN"]
+
+#         # now will treat have > 4 hexes and < 4 hexes as different features
+#         # but they might be the same, need some experiments
+#         # eats an enemy
+#         default_num = len(_STARTING_HEXES[self.colour])
+#         current_num = num_pieces + self.scores[self.colour]
+#         if current_num > default_num:
+#             value += (current_num - default_num) * _DEFAULT_WEIGHTS["_EAT"]
+#             value += current_num * _DEFAULT_WEIGHTS["_>HEXES"]
+#         else:
+#             value -= (current_num - default_num) * _DEFAULT_WEIGHTS["_EATEN"]
+#             value -= current_num * _DEFAULT_WEIGHTS["_<HEXES"]
+
+#         # how many have exited
+#         value += self.scores[self.colour] * _DEFAULT_WEIGHTS["_EXIT"]
+
+#         value -= (6 * num_pieces - len(self._available_actions())) * _DEFAULT_WEIGHTS["_NUM_ACTION"]
+#         return sigmoid(value)*10
 
 class QLearningTable:
 
@@ -666,45 +880,53 @@ class QLearningTable:
 
     def chooseAction(self, state, action, action_list):
         # TODO: Decide what action to take based on the qTable
-        state = str(state)
         action_list = [action for action in self.qTable[state].keys() if ast.literal_eval(action) in action_list]
-        if max(self.qTable[state].values()) == 0 or random.random() < self.eGreedy:
+        if max(self.qTable[state].values()) == 0 or random.uniform(0, 1) < self.eGreedy:
             #random
             if random.random() > 0.4:
-                return ast.literal_eval(action_list[int(random.random() * len(action_list))])
+                return ast.literal_eval(action_list[int(random.uniform(0, 1) * len(action_list))])
             return action
 
         else:
             return ast.literal_eval(max(action_list, key=lambda x:x[1]))
 
-    def checkState(self, state, action_list):
+    def checkState(self, player):
         # TODO: Check if the state is in the qTable and add it if not
-        state = str(state)
-        if state not in self.qTable:
-            self.qTable[state] = {}
-            for action in action_list:
-                action = str(action)
-                self.qTable[state][action] = 0
-        else:
-            for action in action_list:
-                action = str(action)
-                if action not in self.qTable[state]:
-                    self.qTable[state][action] = 0
+        # for each poosible following states from this state, add to the table
+        curr_state = str(player._snap()[0])
+        if curr_state not in self.qTable:
+            self.qTable[curr_state] = {}
+    
+        for action in player._available_actions():
+            if action not in self.qTable[curr_state].keys():
+                self.qTable[curr_state][str(action)] = 0
 
-    def learn(self, last_state, action, state, reward, end=False):
-        # end = False ?
-        # TODO: Update the qTable based on the result of the action using the Q-Learning algorithm
-        #print("*******learn********")
-        state = str(state)
-        last_state = str(last_state)
-        action = str(action)
-        if not end:
-            qTarget = reward + self.rewardDecay*max(self.qTable[state].values())
-        else:
-            qTarget = reward
+            player_cp = player.copy()
+            player_cp.update(player.colour, action, update=False)
+            for oppo_2, model_2 in player.opponents.items():
+                for action_2 in model_2._available_actions():
+                    player_cp.update(oppo_2, action_2, update=False)
+                    for oppo_3, model_3 in player.opponents.items():
+                        if oppo_3 == oppo_2:
+                            continue
+                        for action_3 in model_3._available_actions():
+                            player_cp.update(oppo_3, action_3, update=False)
 
+                            new_state = str(player_cp._snap()[0])
+                            if new_state not in self.qTable.keys():
+                                self.qTable[new_state] = {}
+                            for next_action in player_cp._available_actions():
+                                if action not in self.qTable[new_state].keys():
+                                    self.qTable[new_state][str(next_action)] = 0
+
+    def learn(self, last_state, action, curr_state, reward):
+        """
+        given a new state(curr_state),
+        what can the last_state learn?
+        """
+        expected_return = reward + self.rewardDecay*max(self.qTable[curr_state].values())
         self.qTable[last_state][action] *= 1-self.learningRate
-        self.qTable[last_state][action] += self.learningRate * qTarget
+        self.qTable[last_state][action] += self.learningRate * expected_return
 
     def saveTable(self, colour):
         #print(self.qTable)
