@@ -1,6 +1,4 @@
-from AI_NON_INTELLIGENT.player import RandomPlayer
-from AI_NON_INTELLIGENT.player import HPlayer
-from AI_NON_INTELLIGENT.player import ImprovedHPlayer
-from AI_NON_INTELLIGENT.player_new import MaxNPlayer
-from AI_NON_INTELLIGENT.player_new import QLearningPlayer
-from AI_NON_INTELLIGENT.player_new import GreedyPlayer
+from AI_NON_INTELLIGENT.Player import MaxNPlayer as Player
+from AI_NON_INTELLIGENT.Player import QLearningPlayer
+from AI_NON_INTELLIGENT.Player import GreedyPlayer
+from AI_NON_INTELLIGENT.Player import AlternativeGreedyPlayer
